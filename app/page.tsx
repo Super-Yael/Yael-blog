@@ -1,9 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import React, { useEffect, useState } from "react";
 import {
   ArrowUpRight,
-  Award,
   Github,
   Linkedin,
   Mail,
@@ -11,6 +11,7 @@ import {
   Moon,
   Sun,
   Zap,
+  X,
 } from "lucide-react";
 
 const LEVELS = {
@@ -107,6 +108,10 @@ const TRANSLATIONS = {
       utility: "实用新型",
       contact: "联系",
       editorialNote: "编辑提示：完整内容（含高清显微图与R代码分析）可按需提供。",
+      proofs: "材料",
+      viewProofs: "查看材料",
+      pending: "待上传",
+      moreLinks: "相关链接",
     },
     theme: { light: "Light", dark: "Dark", system: "Auto" },
     ui: {
@@ -124,7 +129,8 @@ const TRANSLATIONS = {
         clinical: { title: "临床视角", tag: "微生物学" },
         neural: { title: "数字神经", tag: "数据科学" },
       },
-      honorsTable: { level: "级别", award: "奖项 / 认可", desc: "描述" },
+      honorsTable: { level: "级别", award: "奖项 / 认可", desc: "获奖" },
+      honorsDate: "日期",
       honorsTagline: "按级别筛选",
       footerTagline: "医学技术 & 数据科学",
       footerDesign: "设计于广东",
@@ -197,6 +203,10 @@ const TRANSLATIONS = {
       contact: "CONTACT",
       editorialNote:
         "Editorial Note: Full content including high-resolution microscopy images and R code analysis is available upon request.",
+      proofs: "Proofs",
+      viewProofs: "View Proofs",
+      pending: "Pending upload",
+      moreLinks: "Related links",
     },
     theme: { light: "Light", dark: "Dark", system: "Auto" },
     ui: {
@@ -214,7 +224,8 @@ const TRANSLATIONS = {
         clinical: { title: "Clinical Perspectives", tag: "Microbiology" },
         neural: { title: "Neural Perspectives", tag: "Data Science" },
       },
-      honorsTable: { level: "Level", award: "Award / Recognition", desc: "Description" },
+      honorsTable: { level: "Level", award: "Award / Recognition", desc: "Prize" },
+      honorsDate: "Date",
       honorsTagline: "Filter by level",
       footerTagline: "Medical Technology & Data Science",
       footerDesign: "Designed in Guangdong",
@@ -286,6 +297,10 @@ const TRANSLATIONS = {
       utility: "實用新型",
       contact: "聯絡",
       editorialNote: "編輯提示：完整內容（連高清顯微圖同R代碼分析）可按需提供。",
+      proofs: "材料",
+      viewProofs: "睇材料",
+      pending: "待上傳",
+      moreLinks: "相關連結",
     },
     theme: { light: "光猛", dark: "暗黑", system: "跟隨" },
     ui: {
@@ -303,7 +318,8 @@ const TRANSLATIONS = {
         clinical: { title: "臨床視角", tag: "微生物學" },
         neural: { title: "數字神經", tag: "數據科學" },
       },
-      honorsTable: { level: "級別", award: "獎項 / 認可", desc: "描述" },
+      honorsTable: { level: "級別", award: "獎項 / 認可", desc: "獎項" },
+      honorsDate: "日期",
       honorsTagline: "按級別篩選",
       footerTagline: "醫學技術 & 數據科學",
       footerDesign: "設計於廣東",
@@ -317,6 +333,7 @@ type TabId = "home" | "clinical" | "neural" | "honors" | "research";
 type Theme = "light" | "dark" | "system";
 type LocalizedString = Record<Lang, string>;
 type Translation = (typeof TRANSLATIONS)[Lang];
+type ProofAsset = { path?: string; label?: LocalizedString; links?: { url: string; label?: LocalizedString }[] };
 
 type Article = {
   id: number;
@@ -331,6 +348,9 @@ type Honor = {
   level: keyof typeof LEVELS;
   title: LocalizedString;
   desc: LocalizedString;
+  proofs?: ProofAsset[];
+  links?: { url: string; label?: LocalizedString }[];
+  date?: string;
 };
 
 type Patent = {
@@ -345,6 +365,53 @@ type Paper = {
   journal: string;
   desc: LocalizedString;
   type: "Paper";
+};
+
+const parseDateValue = (value?: string) =>
+  value ? new Date(value).getTime() : 0;
+
+const formatHonorDate = (value?: string) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}.${month}`;
+};
+
+const parseCsvHonors = (csvText: string): Honor[] => {
+  const lines = csvText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length <= 1) return HONORS_FALLBACK;
+  const [, ...rows] = lines;
+  const result: Honor[] = rows
+    .map((row) => {
+      const cols = row.split(",").map((c) => c.trim());
+      if (cols.length < 9) return null;
+      const [
+        date,
+        level,
+        title_zh,
+        title_en,
+        title_yue,
+        prize_zh,
+        prize_en,
+        prize_yue,
+        proofs,
+      ] = cols;
+      const proofList =
+        proofs && proofs.length > 0
+          ? proofs.split("|").map((p) => ({ path: p }))
+          : undefined;
+      return {
+        level: level as keyof typeof LEVELS,
+        date: date || undefined,
+        title: { zh: title_zh, en: title_en, yue: title_yue },
+        desc: { zh: prize_zh, en: prize_en, yue: prize_yue },
+        proofs: proofList,
+      } as Honor;
+    })
+    .filter(Boolean) as Honor[];
+  return result.length > 0 ? result : HONORS_FALLBACK;
 };
 
 const ARTICLES_DATA: Record<"clinical" | "neural", Article[]> = {
@@ -414,168 +481,265 @@ const ARTICLES_DATA: Record<"clinical" | "neural", Article[]> = {
   ],
 };
 
-const HONORS_FULL_DATA: Honor[] = [
+const HONORS_FALLBACK: Honor[] = [
   {
     level: "national",
     title: {
-      zh: "“挑战杯”中国大学生创业大赛 全国金奖",
-      en: "Challenge Cup National Gold Award",
-      yue: "“挑戰杯”中國大學生創業大賽 全國金獎",
+      zh: "“挑战杯”中国大学生创业大赛 校三等奖",
+      en: "Challenge Cup School 3rd Prize",
+      yue: "“挑戰杯”中國大學生創業大賽 校三等獎",
     },
     desc: {
-      zh: "医学创新项目负责人",
-      en: "Project Lead for Medical Innovation",
-      yue: "醫學創新項目負責人",
+      zh: "三等奖",
+      en: "3rd Prize",
+      yue: "三等獎",
     },
+    proofs: [],
   },
   {
     level: "national",
+    date: "2024-10-01",
     title: {
       zh: "“外研社·国才杯”全国英语演讲比赛 银奖",
       en: "FLTRP English Speech Contest Silver Award",
       yue: "“外研社·國才杯”全國英語演講比賽 銀獎",
     },
     desc: {
-      zh: "语言表达与逻辑思维",
-      en: "Public Speaking",
-      yue: "語言表達同邏輯思維",
+      zh: "银奖",
+      en: "Silver",
+      yue: "銀獎",
     },
+    proofs: [
+      {
+        path: "/材料/1国家级/国才杯银奖.pdf",
+      },
+    ],
   },
   {
     level: "national",
+    date: "2024-04-01",
     title: {
       zh: "2024百万同题英语写作大赛 优秀作品奖",
       en: "2024 Million Same Title Writing Award",
       yue: "2024百萬同題英語寫作大賽 優秀作品獎",
     },
     desc: {
-      zh: "全国英语写作竞赛",
-      en: "Writing Competition",
-      yue: "全國英語寫作競賽",
+      zh: "优秀作品奖",
+      en: "Award of Excellence",
+      yue: "優秀作品獎",
     },
+    proofs: [
+      { path: "/材料/1国家级/2024百万同题英语写作大赛优秀作品奖.jpg" },
+    ],
   },
   {
     level: "national",
+    date: "2025-06-01",
     title: {
       zh: "大学生创新创业训练计划 (国家级)",
       en: "National Innovation Training Program",
       yue: "大學生創新創業訓練計劃 (國家級)",
     },
     desc: {
-      zh: "国家级项目成员",
-      en: "National Project Member",
-      yue: "國家級項目成員",
+      zh: "三等奖",
+      en: "3rd Prize",
+      yue: "三等獎",
     },
+    proofs: [
+      { path: "/材料/1国家级/大创国家级.xlsx" },
+    ],
   },
   {
     level: "national",
+    date: "2025-04-01",
     title: {
       zh: "全国大学生英语竞赛 参与奖",
       en: "National College English Competition",
       yue: "全國大學生英語競賽 參與獎",
     },
     desc: {
-      zh: "英语综合能力",
-      en: "English Ability",
-      yue: "英語綜合能力",
+      zh: "参与",
+      en: "Participation",
+      yue: "參與",
     },
+    proofs: [
+      { path: "/材料/1国家级/大学生英语竞赛参与.jpg" },
+    ],
   },
   {
     level: "national",
+    date: "2024-11-01",
     title: {
       zh: "高校计算机挑战赛 (Office) 三等奖",
-      en: "University Computer Challenge 3rd Prize",
-      yue: "高校計算機挑戰賽 (Office) 三等獎",
+      en: "University Computer Challenge Word 3rd Prize",
+      yue: "高校計算機挑戰賽 Word 三等獎",
     },
-    desc: { zh: "Word / Excel / PPT", en: "Office Suite", yue: "Word / Excel / PPT" },
+    desc: { zh: "Word", en: "Word", yue: "Word" },
+    proofs: [
+      { path: "/材料/1国家级/高校计算机挑战赛word三等奖.jpg" },
+    ],
+  },
+  {
+    level: "national",
+    date: "2024-11-01",
+    title: {
+      zh: "高校计算机挑战赛 (Office) 三等奖",
+      en: "University Computer Challenge Excel 3rd Prize",
+      yue: "高校計算機挑戰賽 Excel 三等獎",
+    },
+    desc: { zh: "Excel", en: "Excel", yue: "Excel" },
+    proofs: [
+      { path: "/材料/1国家级/高校计算机挑战赛excel三等奖.jpg" },
+    ],
+  },
+  {
+    level: "national",
+    date: "2024-11-01",
+    title: {
+      zh: "高校计算机挑战赛 (Office) 三等奖",
+      en: "University Computer Challenge PPT 3rd Prize",
+      yue: "高校計算機挑戰賽 PPT 三等獎",
+    },
+    desc: { zh: "PPT", en: "PPT", yue: "PPT" },
+    proofs: [
+      { path: "/材料/1国家级/高校计算机挑战赛ppt三等奖.jpg" },
+    ],
   },
   {
     level: "provincial",
+    date: "2025-05-01",
     title: {
       zh: "省级学术科研报告竞赛 二等奖",
       en: "Provincial Research Report 2nd Prize",
       yue: "省級學術科研報告競賽 二等獎",
     },
     desc: {
-      zh: "报告撰写与汇报",
-      en: "Report Writing",
-      yue: "報告撰寫同匯報",
+      zh: "二等奖",
+      en: "2nd Prize",
+      yue: "二等獎",
     },
+    proofs: [
+      { path: "/材料/2省级/调研报告省二.pdf" },
+    ],
   },
   {
     level: "provincial",
+    date: "2024-08-01",
     title: {
       zh: "2024研究生科研素养提升",
       en: "2024 Research Literacy Improvement",
       yue: "2024研究生科研素養提升",
     },
     desc: {
-      zh: "科研能力认证",
-      en: "Research Capability",
-      yue: "科研能力認證",
+      zh: "-",
+      en: "-",
+      yue: "-",
     },
+    proofs: [
+      { path: "/材料/2024研究生科研素养提升.png" },
+    ],
   },
   {
     level: "municipal",
+    date: "2024-10-01",
     title: {
       zh: "韶关市调研大赛 获奖",
       en: "Shaoguan City Research Award",
       yue: "韶關市調研大賽 獲獎",
     },
     desc: {
-      zh: "社会实践调研",
-      en: "Social Research",
-      yue: "社會實踐調研",
+      zh: "获奖",
+      en: "Awarded",
+      yue: "獲獎",
     },
+    proofs: [
+      { path: "/材料/3市级/韶关市调研大赛.jpg" },
+    ],
   },
   {
     level: "school",
+    date: "2025-03-01",
     title: {
       zh: "“佛大杯”围棋比赛 二等奖",
       en: "Foshan University Cup Go 2nd Prize",
       yue: "“佛大杯”圍棋比賽 二等獎",
     },
-    desc: { zh: "棋类竞技", en: "Go Strategy", yue: "棋類競技" },
+    desc: { zh: "二等奖", en: "2nd Prize", yue: "二等獎" },
+    proofs: [
+      { path: "/材料/4校级/“佛大杯”围棋比赛二等奖.png" },
+    ],
   },
   {
     level: "school",
+    date: "2025-05-01",
     title: { zh: "校级红旗团支部", en: "School-level Red Flag Branch", yue: "校級紅旗團支部" },
-    desc: { zh: "班级团务", en: "Class League Work", yue: "班級團務" },
+    desc: { zh: "-", en: "-", yue: "-" },
+    proofs: [
+      { path: "/材料/4校级/红旗团支部.png" },
+    ],
   },
   {
     level: "school",
+    date: "2025-07-01",
     title: { zh: "“三下乡”社会实践 校级团队", en: "Summer Social Practice Team", yue: "“三下鄉”社會實踐 校級團隊" },
-    desc: { zh: "暑期实践", en: "Summer Practice", yue: "暑期實踐" },
+    desc: { zh: "-", en: "-", yue: "-" },
+    proofs: [
+      { path: "/材料/4校级/三下乡校级.png" },
+    ],
   },
   {
     level: "school",
+    date: "2025-04-01",
     title: { zh: "摄影大赛 二等奖", en: "Photography Competition 2nd Prize", yue: "攝影大賽 二等獎" },
-    desc: { zh: "校园摄影", en: "Photography", yue: "校園攝影" },
+    desc: { zh: "二等奖", en: "2nd Prize", yue: "二等獎" },
+    proofs: [
+      { path: "/材料/4校级/摄影大赛二代奖.jpg" },
+    ],
   },
   {
     level: "school",
+    date: "2024-12-01",
     title: { zh: "十佳易班网络班级", en: "Top 10 Online Class", yue: "十佳易班網絡班級" },
-    desc: { zh: "网络建设", en: "Online Construction", yue: "網絡建設" },
+    desc: { zh: "十佳", en: "Top 10", yue: "十佳" },
+    proofs: [
+      { path: "/材料/4校级/十佳易班网络班级.jpg" },
+    ],
   },
   {
     level: "school",
+    date: "2025-03-01",
     title: { zh: "职业规划大赛 优胜", en: "Career Planning Winner", yue: "職業規劃大賽 優勝" },
-    desc: { zh: "职业规划", en: "Career Plan", yue: "職業規劃" },
+    desc: { zh: "优胜", en: "Winner", yue: "優勝" },
+    proofs: [
+      { path: "/材料/4校级/职业规划大赛.png" },
+    ],
   },
   {
     level: "school",
+    date: "2025-05-01",
     title: { zh: "五四调研报告 优秀", en: "May 4th Report Excellence", yue: "五四調研報告 優秀" },
-    desc: { zh: "思想调研", en: "Thought Survey", yue: "思想調研" },
+    desc: { zh: "优秀", en: "Excellence", yue: "優秀" },
+    proofs: [
+      { path: "/材料/4校级/调研报告54.pdf" },
+    ],
   },
   {
     level: "department",
+    date: "2024-03-01",
     title: { zh: "检验系演讲比赛 一等奖", en: "Dept. Speech Contest 1st Prize", yue: "檢驗系演講比賽 一等獎" },
-    desc: { zh: "系部风采", en: "Showcase", yue: "系部風采" },
+    desc: { zh: "一等奖", en: "1st Prize", yue: "一等獎" },
+    proofs: [
+      { path: "/材料/5系部级/检验系演讲比赛一等奖.tif" },
+    ],
   },
   {
     level: "department",
+    date: "2025-04-01",
     title: { zh: "清明答题比赛 一等奖", en: "Qingming Quiz 1st Prize", yue: "清明答題比賽 一等獎" },
-    desc: { zh: "文化竞赛", en: "Culture Quiz", yue: "文化競賽" },
+    desc: { zh: "一等奖", en: "1st Prize", yue: "一等獎" },
+    proofs: [
+      { path: "/材料/5系部级/清明答题一等奖.jpg" },
+    ],
   },
 ] as const;
 
@@ -720,6 +884,8 @@ type HonorsSectionProps = {
   t: Translation;
   selectedLevels: (keyof typeof LEVELS)[];
   toggleLevel: (level: keyof typeof LEVELS) => void;
+  setProofModal: React.Dispatch<React.SetStateAction<Honor | null>>;
+  honorsData: Honor[];
 };
 
 const HonorsSection = ({
@@ -727,7 +893,12 @@ const HonorsSection = ({
   t,
   selectedLevels,
   toggleLevel,
+  setProofModal,
+  honorsData,
 }: HonorsSectionProps) => {
+  const honorsSorted = [...honorsData].sort(
+    (a, b) => parseDateValue(b.date) - parseDateValue(a.date)
+  );
   return (
     <div className="animate-fade-in pb-12">
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-8">
@@ -757,14 +928,15 @@ const HonorsSection = ({
       </div>
     </div>
 
-    <div className="flex flex-col">
-      <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-gray-400 border-b border-gray-200 dark:border-gray-800 pb-2 mb-4 px-2">
-        <div className="col-span-3 md:col-span-2">{t.ui.honorsTable.level}</div>
-        <div className="col-span-7 md:col-span-6">{t.ui.honorsTable.award}</div>
-        <div className="col-span-2 md:col-span-4 text-right">{t.ui.honorsTable.desc}</div>
-      </div>
+      <div className="flex flex-col">
+        <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-gray-400 border-b border-gray-200 dark:border-gray-800 pb-2 mb-4 px-2">
+          <div className="col-span-2">{t.ui.honorsDate}</div>
+          <div className="col-span-2">{t.ui.honorsTable.level}</div>
+          <div className="col-span-6">{t.ui.honorsTable.award}</div>
+          <div className="col-span-2 text-right">{t.ui.honorsTable.desc}</div>
+        </div>
 
-        {HONORS_FULL_DATA.map((honor, index) => {
+        {honorsSorted.map((honor, index) => {
           const isVisible = selectedLevels.includes(honor.level);
           return (
             <div
@@ -773,8 +945,14 @@ const HonorsSection = ({
                 isVisible ? "max-h-24 opacity-100" : "max-h-0 opacity-0"
               }`}
             >
-              <div className="grid grid-cols-12 items-baseline py-4 border-b border-gray-100 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/50 px-2 transition-colors">
-                <div className="col-span-3 md:col-span-2 flex items-center">
+              <button
+                onClick={() => setProofModal(honor)}
+                className="grid grid-cols-12 w-full text-left items-baseline py-4 border-b border-gray-100 dark:border-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 px-2 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:focus-visible:ring-gray-600"
+              >
+                <div className="col-span-2 text-[10px] md:text-xs font-mono text-gray-500">
+                  {formatHonorDate(honor.date)}
+                </div>
+                <div className="col-span-2 flex items-center">
                   <div
                     className={`w-1.5 h-1.5 rounded-full mr-3 shrink-0 ${LEVELS[honor.level].color
                       .split(" ")[0]
@@ -784,21 +962,169 @@ const HonorsSection = ({
                     {LEVELS[honor.level].label[lang]}
                   </span>
                 </div>
-                <div className="col-span-7 md:col-span-6">
+                <div className="col-span-6">
                   <h3 className="text-base md:text-lg font-serif text-gray-900 dark:text-gray-100">
                     {honor.title[lang]}
                   </h3>
                 </div>
-                <div className="col-span-2 md:col-span-4 text-right text-xs text-gray-400 font-light">
-                  <span className="hidden md:inline">{honor.desc[lang]}</span>
-                  <span className="md:hidden">
-                    <Award size={14} className="ml-auto" />
-                  </span>
+                <div className="col-span-2 text-right text-xs text-gray-800 dark:text-gray-100 font-medium">
+                  <span>{honor.desc[lang]}</span>
                 </div>
-              </div>
+              </button>
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+};
+
+type ProofModalProps = {
+  honor: Honor;
+  lang: Lang;
+  t: Translation;
+  onClose: () => void;
+};
+
+const isImage = (path: string) =>
+  [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"].some((ext) =>
+    path.toLowerCase().endsWith(ext)
+  );
+const isPdf = (path: string) => path.toLowerCase().endsWith(".pdf");
+
+const ProofModal = ({ honor, lang, t, onClose }: ProofModalProps) => {
+  const proofs = honor.proofs ?? [];
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeProof = proofs[activeIndex];
+
+  const renderViewer = () => {
+    if (!activeProof || !activeProof.path) {
+      return (
+        <div className="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+          {t.sections.pending}
+        </div>
+      );
+    }
+
+    if (isPdf(activeProof.path)) {
+      return (
+        <iframe
+          src={activeProof.path}
+          title="proof-pdf"
+          className="w-full h-full rounded-lg border border-gray-200 dark:border-gray-800 bg-white"
+        />
+      );
+    }
+
+    if (isImage(activeProof.path)) {
+      return (
+        <div className="relative w-full h-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+          <Image
+            src={activeProof.path}
+            alt={(activeProof.label?.[lang] ?? honor.title[lang]) || "proof"}
+            fill
+            className="object-contain"
+            sizes="(max-width: 1024px) 100vw, 900px"
+            priority
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 bg-white/50 dark:bg-gray-900/40">
+        <p className="text-sm text-gray-500 dark:text-gray-300 text-center px-4">
+          {activeProof.label?.[lang] || honor.title[lang]}
+        </p>
+        <a
+          href={activeProof.path}
+          download
+          className="px-4 py-2 text-xs font-bold uppercase tracking-wider border border-gray-300 dark:border-gray-600 rounded-full hover:border-gray-900 hover:text-gray-900 dark:hover:border-gray-200 dark:hover:text-white transition-colors"
+        >
+          {t.sections.viewProofs}
+        </a>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-10" onClick={onClose}>
+      <div
+        className="relative w-full max-w-5xl h-[80vh] bg-[#FAFAFA] dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <div>
+            <p className="text-xs font-mono uppercase tracking-widest text-gray-500">
+              {t.sections.proofs}
+            </p>
+            <h4 className="text-lg font-serif text-gray-900 dark:text-white leading-tight">
+              {honor.title[lang]}
+            </h4>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-white hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+            aria-label="Close proof modal"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="px-6 py-4 h-[calc(80vh-56px)] flex flex-col gap-4">
+          <div className="flex-1 min-h-0">{renderViewer()}</div>
+
+          {proofs.length > 1 && (
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+              {proofs.map((proof, idx) => (
+                <button
+                  key={proof.path ?? idx}
+                  onClick={() => setActiveIndex(idx)}
+                  className={`relative h-16 w-20 rounded-lg border transition-all ${
+                    idx === activeIndex
+                      ? "border-gray-900 dark:border-white"
+                      : "border-gray-200 dark:border-gray-700 hover:border-gray-500 dark:hover:border-gray-400"
+                  }`}
+                >
+                  {proof.path && isImage(proof.path) ? (
+                    <Image
+                      src={proof.path}
+                      alt={honor.title[lang]}
+                      fill
+                      className="object-cover rounded-lg"
+                      sizes="80px"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[10px] text-gray-500 px-2 text-center">
+                      {proof.label?.[lang] || t.sections.proofs}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {honor.links && honor.links.length > 0 && (
+            <div className="border-t border-gray-200 dark:border-gray-800 pt-3">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                {t.sections.moreLinks}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {honor.links.map((link, idx) => (
+                  <a
+                    key={idx}
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-bold uppercase tracking-wider border border-gray-200 dark:border-gray-700 px-3 py-1 rounded-full hover:border-gray-900 hover:text-gray-900 dark:hover:border-gray-300 dark:hover:text-white transition-colors"
+                  >
+                    {link.label?.[lang] || link.url}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -965,9 +1291,19 @@ const HomeSection = ({ t, setActiveTab }: HomeSectionProps) => (
         <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 bg-gray-900 dark:bg-white rounded-full border-4 border-white dark:border-[#0A0A0A]"></div>
 
         <div className="mb-12">
-          <h4 className="text-3xl font-serif text-gray-900 dark:text-white mb-2">
-            {t.resume.university}
-          </h4>
+          <div className="flex items-center gap-4 mb-2">
+            <Image
+              src="/FOSU.webp"
+              alt={`${t.resume.university} logo`}
+              width={56}
+              height={56}
+              className="h-12 w-12 rounded-lg object-cover border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900"
+              priority
+            />
+            <h4 className="text-3xl font-serif text-gray-900 dark:text-white">
+              {t.resume.university}
+            </h4>
+          </div>
           <div className="flex flex-col md:flex-row gap-2 md:gap-6 text-sm font-mono text-gray-500 uppercase tracking-wide">
             <span>{t.resume.degree}</span>
             <span className="hidden md:inline text-gray-300 dark:text-gray-700">
@@ -1101,6 +1437,8 @@ export default function BlogApp() {
   const [selectedLevels, setSelectedLevels] = useState<
     (keyof typeof LEVELS)[]
   >(["national", "provincial", "municipal", "school", "department"]);
+  const [proofModal, setProofModal] = useState<Honor | null>(null);
+  const [honorsData, setHonorsData] = useState<Honor[]>(HONORS_FALLBACK);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -1123,6 +1461,21 @@ export default function BlogApp() {
 
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    const loadHonors = async () => {
+      try {
+        const res = await fetch("/honors.csv");
+        if (!res.ok) return;
+        const text = await res.text();
+        const parsed = parseCsvHonors(text);
+        setHonorsData(parsed);
+      } catch (error) {
+        console.warn("Failed to load honors.csv, using fallback.", error);
+      }
+    };
+    loadHonors();
+  }, []);
 
   const t = TRANSLATIONS[lang];
 
@@ -1238,6 +1591,8 @@ export default function BlogApp() {
                 t={t}
                 selectedLevels={selectedLevels}
                 toggleLevel={toggleLevel}
+                setProofModal={setProofModal}
+                honorsData={honorsData}
               />
             )}
             {activeTab === "research" && <ResearchSection lang={lang} t={t} />}
@@ -1346,6 +1701,10 @@ export default function BlogApp() {
           scrollbar-width: none;
         }
       `}</style>
+
+      {proofModal && (
+        <ProofModal honor= {proofModal} lang={lang} t={t} onClose={() => setProofModal(null)} />
+      )}
     </div>
   );
 }
